@@ -173,11 +173,72 @@ local function copilot(raw)
   }
 end
 
+-- Codex's hook payload is almost canonical: top-level {tool_name, cwd,
+-- tool_input}. The only real translation is apply_patch → ApplyPatch with
+-- tool_input.command (the raw `*** Begin Patch ... *** End Patch` text)
+-- moved to tool_input.patch_text. Edit/Write/Bash/ApplyPatch are otherwise
+-- passthrough — codex models route all edits through apply_patch today,
+-- but the Edit/Write/Bash branches exist defensively in case a future
+-- codex version (or an MCP server) emits those names with Claude-Code-
+-- style field shapes.
+--
+-- Note: file paths are run through the shared `resolve_path`, which collapses
+-- ../ and ./ segments via vim.fs.normalize. The old bash codex shim did not —
+-- paths were preserved verbatim. The change is deliberate and matches the
+-- opencode/copilot contract: internal keys (active_diffs, changes registry)
+-- must be canonical so logically-same files compare equal across backends.
+--
+-- The canonical-ApplyPatch branch (uppercase) below also fixes a dormant
+-- bug in the old shim: its `ApplyPatch|Edit|Write` case blank-checked
+-- tool_input.file_path, which canonical ApplyPatch doesn't carry, so any
+-- such payload would have been silently dropped. Nothing emits canonical
+-- ApplyPatch today, but the new branch checks patch_text correctly.
+local function codex(raw)
+  local tool = (raw and raw.tool_name) or ""
+  local cwd  = (raw and raw.cwd) or ""
+  local args = (raw and raw.tool_input) or {}
+
+  local function blank(s) return s == nil or s == "" end
+
+  if tool == "apply_patch" then
+    if blank(args.command) then
+      return { tool_name = nil, cwd = cwd, tool_input = {} }
+    end
+    return {
+      tool_name  = "ApplyPatch",
+      cwd        = cwd,
+      tool_input = { patch_text = args.command },
+    }
+  elseif tool == "ApplyPatch" then
+    if blank(args.patch_text) then
+      return { tool_name = nil, cwd = cwd, tool_input = {} }
+    end
+    return { tool_name = "ApplyPatch", cwd = cwd, tool_input = args }
+  elseif tool == "Edit" or tool == "Write" then
+    local fp = resolve_path(args.file_path, cwd)
+    if blank(fp) then
+      return { tool_name = nil, cwd = cwd, tool_input = {} }
+    end
+    local out = {}
+    for k, v in pairs(args) do out[k] = v end
+    out.file_path = fp
+    return { tool_name = tool, cwd = cwd, tool_input = out }
+  elseif tool == "Bash" then
+    if blank(args.command) then
+      return { tool_name = nil, cwd = cwd, tool_input = {} }
+    end
+    return { tool_name = "Bash", cwd = cwd, tool_input = args }
+  end
+
+  return { tool_name = nil, cwd = cwd, tool_input = {} }
+end
+
 M.normalisers = {
   claudecode = identity,
   opencode   = opencode,
   copilot    = copilot,
-  -- codex / gemini will land their own normalisers as they flip.
+  codex      = codex,
+  -- gemini will land its own normaliser when it flips.
 }
 
 --- @param raw table  decoded hook payload
