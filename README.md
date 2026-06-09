@@ -199,7 +199,7 @@ require("code-preview").setup({
   debug = false,         -- enable debug logging to stdpath("log")/code-preview.log
   diff = {
     layout   = "tab",    -- "tab" (new tab) | "vsplit" (current tab) | "inline" (GitHub-style)
-    layouts  = {},       -- add layouts overrides for specific backends: { opencode = "tab", codex = "vsplit" }
+    layouts  = {},       -- override layout per backend: { opencode = "tab", codex = "vsplit" }
     labels   = { current = "CURRENT", proposed = "PROPOSED" },
     equalize   = true,   -- 50/50 split widths (tab/vsplit only)
     full_file  = true,   -- show full file, not just diff hunks (tab/vsplit only)
