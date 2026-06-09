@@ -159,7 +159,7 @@ local function present_single_file(file_path, proposed_content, input, cfg)
     return
   end
 
-  diff.show_diff(orig, prop, display_path(file_path, input.cwd), file_path, nil)
+  diff.show_diff(orig, prop, display_path(file_path, input.cwd), file_path, nil, input.backend)
 end
 
 local function handle_edit(input, cfg)
@@ -250,7 +250,7 @@ local function handle_apply_patch(input, cfg)
       -- whatever the model wrote in the `*** Update File:` directive, and some
       -- codex models (e.g. GPT 5.3) write an absolute path there, which would
       -- render the tab as `D:\...` instead of a cwd-relative label.
-      diff.show_diff(orig, prop, display_path(file.path, input.cwd), file.path, file.action)
+      diff.show_diff(orig, prop, display_path(file.path, input.cwd), file.path, file.action, input.backend)
     else
       log.info(log.fmt("pre_tool: ApplyPatch skip %s (visible_only)", file.rel_path))
     end
@@ -274,6 +274,9 @@ local dispatchers = {
 function M.handle(raw, backend)
   local cfg = require("code-preview").config or {}
   local input = normalisers.normalise(raw, backend)
+  if input then
+    input.backend = backend
+  end
   local tool_name = input and input.tool_name
 
   log.info(log.fmt("pre_tool: tool=%s backend=%s", tostring(tool_name), tostring(backend)))
