@@ -199,7 +199,6 @@ require("code-preview").setup({
   debug = false,         -- enable debug logging to stdpath("log")/code-preview.log
   diff = {
     layout   = "tab",    -- "tab" (new tab) | "vsplit" (current tab) | "inline" (GitHub-style)
-    layouts  = {},       -- override layout per backend: { opencode = "tab", codex = "vsplit" }
     labels   = { current = "CURRENT", proposed = "PROPOSED" },
     equalize   = true,   -- 50/50 split widths (tab/vsplit only)
     full_file  = true,   -- show full file, not just diff hunks (tab/vsplit only)
@@ -298,20 +297,6 @@ To use inline diff:
 ```lua
 require("code-preview").setup({
   diff = { layout = "inline" },
-})
-```
-
-You can also override the layout per backend. In this case, the default will still be "tab" unless a backend specifies otherwise:
-
-```lua
-require("code-preview").setup({
-  diff = {
-    layout = "tab",
-    layouts = {
-      opencode = "tab",
-      codex = "vsplit",
-    },
-  },
 })
 ```
 
@@ -467,7 +452,8 @@ vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold" }, {
 **Copilot CLI hooks not firing**
 - Run `:CodePreviewInstallCopilotCliHooks` in the project root
 - Verify `.github/hooks/code-preview.json` exists
-- Ensure `jq` is in PATH
+- Ensure `jq` is in PATH (macOS/Linux only; the Windows hook uses PowerShell's native JSON parsing)
+- On Windows, Copilot runs the hook under **pwsh 7+** (its own requirement). If hooks silently don't fire, check your PowerShell execution policy with `Get-ExecutionPolicy` — pwsh's default `RemoteSigned` runs the local hook script, but `Restricted`/`AllSigned` blocks it (e.g. `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`)
 - Restart Copilot CLI (hooks are loaded at session start)
 
 **Diff doesn't close after rejecting**
