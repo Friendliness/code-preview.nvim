@@ -181,6 +181,18 @@ describe("normalisers.normalise (copilot)", function()
     assert.equals("ls",   out.tool_input.command)
   end)
 
+  -- Regression (issue #46): on Windows Copilot's shell tool is `powershell`,
+  -- not `bash` (observed with Gemini-class models). Same {command, description}
+  -- shape; must alias to Bash so shell_detect runs and marks neo-tree. Without
+  -- it, Remove-Item deletes arrive as tool_name=nil and are silently dropped.
+  it("powershell (Windows shell tool) maps to Bash with command", function()
+    local cmd = 'Remove-Item -Path "D:\\a\\x.txt", "D:\\b\\y.txt" -ErrorAction Stop'
+    local out = normalisers.normalise(
+      copilot_pre("powershell", { command = cmd, description = "delete temp files" }), "copilot")
+    assert.equals("Bash", out.tool_name)
+    assert.equals(cmd,    out.tool_input.command)
+  end)
+
   it("apply_patch treats toolArgs string as raw patch text (not JSON)", function()
     local out = normalisers.normalise({
       toolName = "apply_patch",
@@ -206,6 +218,27 @@ describe("normalisers.normalise (copilot)", function()
     local out = normalisers.normalise(
       copilot_pre("edit", { path = "src/rel.lua", old_str = "a", new_str = "b" }), "copilot")
     assert.equals("/proj/src/rel.lua", out.tool_input.file_path)
+  end)
+
+  -- Regression (issue #46): Gemini-class models route edits through Copilot's
+  -- `edit`/`create` tools with an ABSOLUTE Windows path. resolve_path must treat
+  -- a drive-letter / UNC path as already-absolute; otherwise it is joined onto
+  -- cwd (`D:/proj/D:/proj/file`), which fs_stats as missing → the file is
+  -- mis-marked "created", no diff renders, and a junk neo-tree node is injected.
+  it("does not double an absolute Windows drive-letter path", function()
+    local raw = copilot_pre("edit", { path = "D:/proj/sub/foo.lua", old_str = "a", new_str = "b" })
+    raw.cwd = "D:/proj"
+    local out = normalisers.normalise(raw, "copilot")
+    assert.equals("Edit",                out.tool_name)
+    assert.equals("D:/proj/sub/foo.lua", out.tool_input.file_path)
+  end)
+
+  it("does not double an absolute UNC path", function()
+    local out = normalisers.normalise(
+      copilot_pre("create", { path = "\\\\srv\\share\\new.lua", file_text = "x" }), "copilot")
+    assert.equals("Write", out.tool_name)
+    -- Key regression assertion: cwd ("/proj") is NOT prepended.
+    assert.is_nil(out.tool_input.file_path:find("proj", 1, true))
   end)
 
   it("noise / unknown tool yields nil tool_name", function()

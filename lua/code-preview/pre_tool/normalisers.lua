@@ -13,6 +13,8 @@
 -- so the opencode normaliser maps both into the canonical shape. New backends
 -- slot in by adding a function to the table.
 
+local platform = require("code-preview.platform")
+
 local M = {}
 
 local function identity(raw)
@@ -57,10 +59,15 @@ local OPENCODE_TOOL_MAP = {
 -- Matches Node's path.resolve semantics the old TS plugin used; without it
 -- opencode keys could be raw "/proj/../escape.txt" strings that don't
 -- compare equal to claudecode-shaped keys for the same logical file.
+-- An already-absolute path must NOT be joined onto cwd, or it doubles
+-- (`D:\proj\D:\proj\file`): Gemini-class models route edits through Copilot's
+-- `edit` tool with an absolute Windows `path`. Absolute-path detection lives in
+-- the shared platform.is_absolute, so normalisers, shell_detect, and apply/patch
+-- agree (issue #46).
 local function resolve_path(p, cwd)
   if not p or p == "" then return p end
   local abs = p
-  if p:sub(1, 1) ~= "/" and cwd and cwd ~= "" then
+  if not platform.is_absolute(p) and cwd and cwd ~= "" then
     abs = cwd .. "/" .. p
   end
   return vim.fs.normalize(abs)
@@ -109,6 +116,13 @@ end
 -- before invoking us). `str_replace` and `edit` carry the same {path,
 -- old_str, new_str} shape; both alias to Edit. `create` and `write` both
 -- alias to Write (file_text vs content).
+--
+-- Shell ops: on macOS/Linux Copilot uses `bash`; on Windows it uses
+-- `powershell` (issue #46, observed with Gemini-class models — Remove-Item
+-- deletes, git status, …). Both carry the same {command, description} shape and
+-- alias to Bash, so shell_detect's PowerShell/POSIX grammar tells them apart.
+-- Without the `powershell` entry, Windows shell deletes/writes arrive as
+-- tool_name=nil and are silently dropped (no neo-tree indicator).
 local COPILOT_TOOL_MAP = {
   apply_patch = "ApplyPatch",
   edit        = "Edit",
@@ -116,11 +130,14 @@ local COPILOT_TOOL_MAP = {
   create      = "Write",
   write       = "Write",
   bash        = "Bash",
+  powershell  = "Bash",
 }
 
--- Copilot delivers `toolArgs` as a JSON-encoded string in preToolUse and as
--- an object in postToolUse. For apply_patch the string IS the raw patch text
--- (not JSON). For every other tool the string contains a JSON object with
+-- Copilot delivers `toolArgs` as a JSON-encoded string in preToolUse. In
+-- postToolUse the shape varies across OS / model / Copilot version — it may be
+-- the same JSON string or a decoded object — so the branches below accept BOTH
+-- rather than assume either. For apply_patch the string IS the raw patch text
+-- (not JSON); for every other tool the string contains a JSON object with
 -- snake_case keys (path, old_str, new_str, file_text, command, ...).
 --
 -- Note: file paths are run through the shared `resolve_path`, which collapses
